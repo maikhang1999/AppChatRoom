@@ -36,6 +36,40 @@ typedef struct{
 
 client_t *clients[MAX_CLIENTS];
 
+
+// typedef struct VulgarWords{
+//   char word[50];
+//   int length;
+//   struct VulgarWords *next;
+// } VulgarWords;
+// VulgarWords *rootTree;
+
+// VulgarWords *makeNodeWord(VulgarWords *nodeInput){
+//     VulgarWords *temp = (VulgarWords *)malloc(sizeof(VulgarWords *));
+//     temp->word = nodeInput->word;
+//     temp->length = nodeInput->length;
+//     temp->next = NULL;
+//     return temp;
+// }
+// VulgarWords *insertNodeWord(VulgarWords *node){
+//  node->next = rootTree;
+//  rootTree = node;
+//  return rootTree;
+// }
+// VulgarWords* findNodeWord(char word[]) {
+//   VulgarWords* node = rootTree;
+//   if (node == NULL)
+//     return NULL;
+//   else {
+//     do {
+//       if (strcmp(node->word, word) == 0) {
+//         return node;
+//       }
+//       node = node->next;
+//     } while (node != NULL);
+//   }
+//   return NULL;
+// }
 pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
 User *root, *cur;
 // void str_overwrite_stdout() {
