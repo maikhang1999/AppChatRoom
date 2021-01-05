@@ -96,6 +96,18 @@ char* EncodeMessage (char mess[], int code) {
     *(EncodedMess) = '0';
     *(EncodedMess + 1) = '4';
   }
+  else if (code == 41) {
+    *(EncodedMess) = '4';
+    *(EncodedMess + 1) = '1';
+  }
+  else if (code == 42) {
+    *(EncodedMess) = '4';
+    *(EncodedMess + 1) = '2';
+  }
+  else if (code == 43) {
+    *(EncodedMess) = '4';
+    *(EncodedMess + 1) = '3';
+  }
   else if(code == 5){
     *(EncodedMess) = '0';
     *(EncodedMess +1) = '5'; 
@@ -104,11 +116,6 @@ char* EncodeMessage (char mess[], int code) {
      *(EncodedMess) = '5';
      *(EncodedMess+1) = '1';
   }
-  else if(code == 99){
-    *(EncodedMess) = '9';
-     *(EncodedMess+1) = '9';
-  }
-
   *(EncodedMess + 2) = ' ';
   for (int i=0; i<strlen(mess); ++i) {
     *(EncodedMess + 3 + i) = mess[i];
@@ -203,6 +210,28 @@ int main(int argc, char **argv){
                   }
 
           }
+          if(strcmp(recvline,"2")==0){
+               pthread_t send_msg_thread;
+                if(pthread_create(&send_msg_thread, NULL, (void *) send_msg_handler, NULL) != 0){
+                  printf("ERROR: pthread\n");
+                  return EXIT_FAILURE;
+                }
+
+                pthread_t recv_msg_thread;
+                if(pthread_create(&recv_msg_thread, NULL, (void *) recv_msg_handler, NULL) != 0){
+                  printf("ERROR: pthread\n");
+                  return EXIT_FAILURE;
+                }
+                  pthread_join(send_msg_thread,NULL);
+                  pthread_join(recv_msg_thread,NULL);
+                  while (1){
+                        if(flag){
+                          printf("\nBye\n");
+                          break;
+                        }
+                  }
+
+          }
           
         if (fgets(sendline, BUFF_SIZE, stdin) != NULL) {
           text = realloc(text, strlen(text) + 1 + strlen(sendline));
@@ -229,6 +258,7 @@ int main(int argc, char **argv){
           }
           // Reply menu-chat
           else if (strcmp(DecodeMessage(recvline), "03") == 0) {
+            printf("%s\n",recvline );
             strcpy(sendMess, EncodeMessage(sendline, 3));
             
           }
@@ -237,6 +267,14 @@ int main(int argc, char **argv){
             strcpy(sendMess, EncodeMessage(sendline, 4));
            
           }
+          // // Reply chat 1-1 to receive and send message
+          // else if (strcmp(DecodeMessage(recvline), "41") == 0) {
+          //   strcpy(sendMess, EncodeMessage(sendline, 41));
+          // }
+          // // Reply send waiting message
+          // else if (strcmp(DecodeMessage(recvline), "42") == 0) {
+          //   strcpy(sendMess, EncodeMessage(sendline, 42));
+          // }
           else if(strcmp(DecodeMessage(recvline),"05")==0){
               strcpy(sendMess,EncodeMessage(sendline,5));
           }

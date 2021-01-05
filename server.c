@@ -11,6 +11,7 @@
 #include <signal.h>
 #include <sys/wait.h>
 #include "user.h"
+#include "word.h"
 #define BUFF_SIZE 512
 #define MAX 25
 #define TRUE 1
@@ -23,60 +24,154 @@ static _Atomic unsigned int cli_count = 0;
 static int uid = 10;
  int process=0;
  char fileName[] = "nguoidung.txt";
+ char fileWordHide[] = "tuthotuc.txt";
+ char fileNameMessage[] = "savedmessage.txt";
  char username[MAX];
    FILE *f = NULL;
     FILE *fo = NULL;
+    FILE *fMessage = NULL;
+    FILE *f_word = NULL;
 /* Client structure */
 typedef struct{
   struct sockaddr_in address;
   int sockfd;
   int uid;
+  int receiverSock;
+  int menu_status;  // luu menu nguoi dung dang chon, khoi tao la 0
+  int haveWaitingMessage; // 0 -> no, 1 -> yes
   char name[32];
 } client_t;
+typedef struct {
+  char token[50];
+} arrayToken;
 
-client_t *clients[MAX_CLIENTS];
 
+client_t *Clients[MAX_CLIENTS];
+client_t *ClientsSingle[MAX_CLIENTS];
+void AddReceiverSocket(int socket, int receiverSock) {
+    for (int i = 0; i < MAX_CLIENTS; ++i)
+    {
+        if(ClientsSingle[i]->sockfd == socket){
+            ClientsSingle[i]->receiverSock = receiverSock;
+           return;
+        }
+    }
+}
+int CountSpace(char message[]){
+  int count =0;
+  for (int i = 0; i < strlen(message); ++i)
+  {
+      if(message[i]==' ')
+          count++;
+  }
+  return count;
+}
+// ham chuyen doi tu tho tuc sang ***
+char *tranferHideWord(char buff[]){
+    int length = strlen(buff);
+    for (int i = 0; i < length; ++i)
+    {
+          buff[i] = '*';
+    }
+    //printf("%s\n",buff );
+    return buff;
+}
+// xu ly tu tho tuc
+char *handleHideWord(char message[]){
+    char *token;
+    int index =0;//chi so mang luu token 
+    char messageHandled[256];// ban cap nhat  tin nhan 
+    int numberEle = CountSpace(message)+1;
+    arrayToken *ArrayToken = (arrayToken *)malloc(sizeof(arrayToken)*numberEle);
+    token = strtok(message," ");
+    while(token != NULL){
+      strcpy(ArrayToken[index].token,token);
+        token = strtok(NULL," ");
+        index ++;
+    }
 
-// typedef struct VulgarWords{
-//   char word[50];
-//   int length;
-//   struct VulgarWords *next;
-// } VulgarWords;
-// VulgarWords *rootTree;
+    // phan xu ly
+    int j = 0; // luu so luong token dc duyet qua
+    for (int i = 0; i < index; ++i)
+    {         
+           Word *temp = findOneWord(ArrayToken[i].token);        
+            if(temp != NULL){     
+                if(findNodeWord(ArrayToken[i].token)!=NULL){
+                  strcpy(ArrayToken[i].token,tranferHideWord(ArrayToken[i].token));
+                }
+                if(strlen(ArrayToken[i].token)==strlen(temp->word)){
+                    strcpy(ArrayToken[i].token,tranferHideWord(ArrayToken[i].token));
+                }
+                else{
+                    j = i;
+                    char str[256];
+                    strcat(str,ArrayToken[i].token);
+                    do{                     
+                        j++;
+                        strcat(str," ");
+                        strcat(str,ArrayToken[j].token);                        
+                        Word *cmp = findOneWord(str);
+                        if(cmp != NULL){
+                        if(findNodeWord(str)!= NULL){
+                             for (int k = i; k <=j ; ++k)
+                                {
+                                      strcpy(ArrayToken[k].token,tranferHideWord(ArrayToken[k].token));
+                                }
+                                i = j;
+                                break;
+                        }                       
+                            if(strlen(str)==strlen(cmp->word)){
+                                for (int k = i; k <=j ; ++k)
+                                {
+                                      strcpy(ArrayToken[k].token,tranferHideWord(ArrayToken[k].token));
+                                }
+                                i = j;
+                                break;
+                            }
+                        }
+                        else{
+                          i = j-1;
+                            break;
+                        }
+                        
+                    }while(1);
 
-// VulgarWords *makeNodeWord(VulgarWords *nodeInput){
-//     VulgarWords *temp = (VulgarWords *)malloc(sizeof(VulgarWords *));
-//     temp->word = nodeInput->word;
-//     temp->length = nodeInput->length;
-//     temp->next = NULL;
-//     return temp;
-// }
-// VulgarWords *insertNodeWord(VulgarWords *node){
-//  node->next = rootTree;
-//  rootTree = node;
-//  return rootTree;
-// }
-// VulgarWords* findNodeWord(char word[]) {
-//   VulgarWords* node = rootTree;
-//   if (node == NULL)
-//     return NULL;
-//   else {
-//     do {
-//       if (strcmp(node->word, word) == 0) {
-//         return node;
-//       }
-//       node = node->next;
-//     } while (node != NULL);
-//   }
-//   return NULL;
-// }
+                }
+            }
+
+    }
+    strcpy(message,"");
+    // transplant token to message
+    for (int i = 0; i < index; ++i)
+    {
+      strcat(message,ArrayToken[i].token);
+      strcat(message," ");
+      
+    }
+    free(ArrayToken);
+    //printf("%s\n",message);
+    return message;
+}
+ 
+client_t *findOnlineUser(char username[]) {
+  for(int i=0; i < MAX_CLIENTS; ++i){
+    if(strcmp(username,ClientsSingle[i]->name)== 0){
+        return ClientsSingle[i];
+      }
+  }
+  return NULL;
+}
+void AddMenuStatus (int socket, char choice) {
+    for (int i = 0; i < MAX_CLIENTS; ++i)
+    {
+          if(ClientsSingle[i]->sockfd==socket){
+             ClientsSingle[i]->menu_status =  choice - '0';
+             break;
+          }
+    }
+}
 pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
 User *root, *cur;
-// void str_overwrite_stdout() {
-//     printf("\r%s", "> ");
-//     fflush(stdout);
-// }
-
 void str_trim_lf (char* arr, int length) {
   int i;
   for (i = 0; i < length; i++) { // trim \n
@@ -104,6 +199,26 @@ void readFile(char fileName[], FILE *f) {
   fclose(f);
 
   return;
+}
+// xu ly file che tin nhan tho tuc
+void readFile_Hide(char fileName[],FILE *f){
+  char buffer[50];
+  f = fopen(fileName,"r");
+  Word readWord;
+  freeListWord();
+  if(f == NULL)
+      printf("Cannot read input file!\n");
+  else{
+      while(!feof(f)){
+          fgets(buffer,50,f);
+          buffer[strlen(buffer)-1] ='\0';
+          strcpy(readWord.word,buffer);
+          readWord.length = strlen(buffer);
+          insertNodeWord(readWord);
+      }
+  }
+
+  fclose(f);
 }
 void writeAllToFile(char fileName[], FILE *f) {
   User *node = root;
@@ -141,6 +256,7 @@ char* CutString (char buff[]) {
 
   return res;
 }
+
 /*
 00 - LoginAndExitMenu
 01 - Login - username
@@ -272,7 +388,7 @@ char* HandleLoginUsername (int socket, char mess[], char username[]) {
   }
 }
 
-void HandleLoginPassword (int socket, char username[], char mess[], char fileName[], FILE *f) {
+void HandleLoginPassword (int socket, char username[], char mess[], char fileName[], FILE *f,FILE *f_word) {
   // code: 02
   char sendMess[MAX];
   char password[MAX];
@@ -288,16 +404,32 @@ void HandleLoginPassword (int socket, char username[], char mess[], char fileNam
     foundUser->state = 1;
     writeAllToFile(fileName, f);
     readFile(fileName, f);
+    readFile_Hide(fileWordHide,f_word);
     SendLoginMenu(socket);
   }
 }
 void HandleMenuChat (int socket, char mess[]) {
   char sendMess[MAX];
-  if (mess[3] == '1') {
-    strcpy(sendMess, EncodeMessage("Enter receiver: ", 4));
-    send(socket, sendMess, strlen(sendMess), 0);
+ 
+  int i;
+  for ( i = 0; i <MAX_CLIENTS ; ++i)
+  {
+      if(ClientsSingle[i]->sockfd==socket)
+          break;
   }
-  else if (mess[3] == '2') {
+
+  if (mess[3] == '1') {
+    AddMenuStatus(socket, mess[3]);
+    if (ClientsSingle[i]->haveWaitingMessage == 1) {
+      // check if user have waiting message
+      strcpy(sendMess, EncodeMessage("You have unread message.", 43));
+      send(socket, sendMess, strlen(sendMess), 0);
+    }
+    else {
+      strcpy(sendMess, EncodeMessage("Enter receiver: ", 4));
+      send(socket, sendMess, strlen(sendMess), 0);
+    }
+  }  else if (mess[3] == '2') {
     strcpy(sendMess,EncodeMessage("Enter Room Chat:",5));
     send(socket,sendMess,strlen(sendMess),0);
   }
@@ -348,63 +480,168 @@ int HandleChatRoom(client_t *cli,char mess[],int receive){
      return 1;
     }
 }
-// void *handle_client(void *arg){
-//   char buff_out[BUFFER_SZ];
-//   char name[32];
-//   int leave_flag = 0;
+// Only check sent message to exit or continue
+int HandleChat ( client_t *cli ,char mess[]) {
+  // code: 41
+  while(1){
+      char sendMess[BUFF_SIZE];
+  // int  i;
+  // for (i = 0; i < MAX_CLIENTS; ++i)
+  // {
+  //       if(ClientsSingle[i]->sockfd==cli->sockfd)
+  //           break;
+  // }
 
-//   cli_count++;
-//   client_t *cli = (client_t *)arg;
+  if (strcmp(CutString(mess), "exit") == 0 || strcmp(CutString(mess), "Exit") == 0) {
+    AddReceiverSocket(cli->sockfd, 0);
+    AddMenuStatus(cli->sockfd, '0');
+    strcpy(sendMess, EncodeMessage("Exit...\n", 04));
+    send(cli->receiverSock, sendMess, strlen(sendMess), 0);
+     
+    // strcpy(sendMess, EncodeMessage("Your friend exits..Enter exit to out chat\n", 04));
+    // send(node->receiverSock, sendMess, strlen(sendMess), 0);
+    return 0;
+  }
+  else {
+    strcpy(mess, CutString(mess));
+    strcpy(sendMess, cli->name);
+    strcat(sendMess, ": ");
+    strcat(sendMess, mess);
+    strcat(sendMess, "\n");
+    strcpy(sendMess, EncodeMessage(sendMess, 41));
+  
+    char *strcat = (char *)malloc(sizeof(char)*BUFFER_SZ);
+      sprintf(strcat, "%s :%s", cli->name,sendMess);
+    send_message_toSingle(strcat,cli->receiverSock);
+    free(strcat);
+    str_trim_lf(sendMess, strlen(sendMess));
+    printf("%s -> %s\n", sendMess, cli->name);
+  }
 
-//   // Name
-//   if(recv(cli->sockfd, name, 32, 0) <= 0 || strlen(name) <  2 || strlen(name) >= 32-1){
-//     printf("Didn't enter the name.\n");
-//     leave_flag = 1;
-//   } else{
-//     strcpy(cli->name, name);
-//     sprintf(buff_out, "%s has joined\n", cli->name);
-//     printf("%s", buff_out);
-//     send_message(buff_out, cli->uid);
-//   }
+  return 1;
+  }
+}
 
-//   bzero(buff_out, BUFFER_SZ);
+// return receiver's port
+int HandleSingleChat (int socket, char mess[]) {
+  // code: 04
+  char sendMess[BUFF_SIZE];
+  char username[MAX];
 
-//   while(1){
-//     if (leave_flag) {
-//       break;
-//     }
+  strcpy(username, CutString(mess));
+  client_t *foundUser = findOnlineUser(username);
+  if (foundUser ==NULL) {
+    strcpy(sendMess, EncodeMessage("Username does not exist or login yet. Try again: ", 4));
+    send(socket, sendMess, strlen(sendMess), 0);
 
-//     int receive = recv(cli->sockfd, buff_out, BUFFER_SZ, 0);
-//     if (receive > 0){
-//       if(strlen(buff_out) > 0){
-//         send_message(buff_out, cli->uid);
+    return -1;
+  } 
+  else if (foundUser->menu_status == 0) {
+  
+    // User is in another menu -> code: 42
+    AddReceiverSocket(socket, foundUser->sockfd);
 
-//         str_trim_lf(buff_out, strlen(buff_out));
-//         printf("%s -> %s\n", buff_out, cli->name);
-//       }
-//     } else if (receive == 0 || strcmp(buff_out, "exit") == 0){
-//       sprintf(buff_out, "%s has left\n", cli->name);
-//       printf("%s", buff_out);
-//       send_message(buff_out, cli->uid);
-//       leave_flag = 1;
-//     } else {
-//       printf("ERROR: -1\n");
-//       leave_flag = 1;
-//     }
+    char buff[BUFF_SIZE];
+    memset(buff, 0, sizeof(buff));
+    printf("aaa\n");
+    sprintf(buff, "User does not choose menu yet or in another menu.\nEnter message to send: ");
+    char encodeMenu[BUFF_SIZE];
+    strcpy(encodeMenu, EncodeMessage(buff, 42));
+    // strcpy(sendMess, EncodeMessage("User does not choose menu yet or in another menu.\n", 04));
+    send(socket, encodeMenu, strlen(encodeMenu), 0);
+  }
+  else {
+    AddReceiverSocket(socket, foundUser->sockfd);
+     char state[2] = "2";
+      send(socket,state,strlen(state),0);
+      bzero(state,sizeof(state));
+  }
+  
+  return foundUser->sockfd;
+}
 
-//     bzero(buff_out, BUFFER_SZ);
-//   }
+void HandleSaveWaitMessage (int socket, char mess[], char fileName[], FILE *f) {
+  // User is in another menu -> code: 42
+  char sendMess[BUFF_SIZE];
 
-//   /* Delete client from queue and yield thread */
-//   close(cli->sockfd);
-//   queue_remove(cli->uid);
-//   free(cli);
-//   cli_count--;
-//   pthread_detach(pthread_self());
+  f = fopen(fileName, "a");
+  // find sender's name -> temp
+  int i;
+  for ( i = 0; i < MAX_CLIENTS; ++i)
+  {
+      if(ClientsSingle[i]->sockfd == socket)
+          break;
+  }
+  // find receiver's name -> node
+  int j;
+  for ( j = 0; j <MAX_CLIENTS ; ++j)
+  {
+      if(ClientsSingle[j]->sockfd==ClientsSingle[i]->receiverSock)
+          break;
+  }
 
-//   return NULL;
-// }
 
+  if (strcmp(CutString(mess), "exit") == 0 || strcmp(CutString(mess), "Exit") == 0) {
+    AddReceiverSocket(socket, 0);
+    AddMenuStatus(socket, '0');
+    strcpy(sendMess, EncodeMessage("Exit...\n", 04));
+    send(socket, sendMess, strlen(sendMess), 0);
+    // strcpy(sendMess, EncodeMessage("Your friend exits..Enter exit to out chat\n", 04));
+    // send(node->receiverSock, sendMess, strlen(sendMess), 0);
+  } 
+  else {
+    if (f == NULL)
+      printf("Cannot read input file!\n");
+    else {
+      fputs("\n", f);
+      fputs(ClientsSingle[i]->name, f);
+      fputs("\t", f);
+      fputs(ClientsSingle[j]->name, f);
+      fputs("\t", f);
+      fputs(CutString(mess), f);
+    }
+    ClientsSingle[j]->haveWaitingMessage = 1;
+    strcpy(sendMess, EncodeMessage("Done? If yes, enter exit. If no, enter message to send: ", 42));
+    send(socket, sendMess, strlen(sendMess), 0);
+  }
+
+  fclose(f);
+
+  return;
+}
+
+void HandleSendWaitMessage (int socket, char mess[], char fileName[], FILE *f) {
+  // User is in another menu -> code: 42
+  char sendMess[BUFF_SIZE], sender[BUFF_SIZE], receiver[BUFF_SIZE], message[BUFF_SIZE];
+
+  f = fopen(fileName, "r");
+  // find receiver's name -> temp
+  int i;
+  for (i = 0; i < MAX_CLIENTS; ++i)
+  {
+      if(ClientsSingle[i]->sockfd == socket)
+          break;
+  }
+
+  if (f == NULL)
+    printf("Cannot read input file!\n");
+  else {
+    while(!feof(f)) {
+      fscanf(f, "%s\t%s\t%s\n", sender, receiver, message);
+      if (strcmp(receiver, ClientsSingle[i]->name) == 0) {
+        strcpy(sendMess, sender);
+        strcat(sendMess, ": ");
+        strcat(sendMess, message);
+        strcpy(sendMess, EncodeMessage(sendMess, 43));
+        send(socket, sendMess, strlen(sendMess), 0);
+      }
+    }
+  }
+  
+  fclose(f);
+
+  return;
+}
 void print_client_addr(struct sockaddr_in addr){
     printf("%d.%d.%d.%d",
         addr.sin_addr.s_addr & 0xff,
@@ -418,23 +655,34 @@ void queue_add(client_t *cl){
   pthread_mutex_lock(&clients_mutex);
 
   for(int i=0; i < MAX_CLIENTS; ++i){
-    if(!clients[i]){
-      clients[i] = cl;
+    if(!Clients[i]){
+      Clients[i] = cl;
       break;
     }
   }
 
   pthread_mutex_unlock(&clients_mutex);
 }
+/* Add clientsSingle to queue */
+void queue_add_Single(client_t *cl){
+  pthread_mutex_lock(&clients_mutex);
 
+  for(int i=0; i < MAX_CLIENTS; ++i){
+    if(!ClientsSingle[i]){
+      ClientsSingle[i] = cl;
+      break;
+    }
+  }  
+  pthread_mutex_unlock(&clients_mutex);
+}
 /* Remove clients to queue */
 void queue_remove(int uid){
   pthread_mutex_lock(&clients_mutex);
 
   for(int i=0; i < MAX_CLIENTS; ++i){
-    if(clients[i]){
-      if(clients[i]->uid == uid){
-        clients[i] = NULL;
+    if(Clients[i]){
+      if(Clients[i]->uid == uid){
+        Clients[i] = NULL;
         break;
       }
     }
@@ -442,15 +690,28 @@ void queue_remove(int uid){
 
   pthread_mutex_unlock(&clients_mutex);
 }
+/* Remove clientsSingle to queue */
+void queue_remove_Single(int uid){
+  pthread_mutex_lock(&clients_mutex);
 
+  for(int i=0; i < MAX_CLIENTS; ++i){
+    if(ClientsSingle[i]){
+      if(ClientsSingle[i]->uid == uid){
+        ClientsSingle[i] = NULL;
+        break;
+      }
+    }
+  }
+pthread_mutex_unlock(&clients_mutex);
+}
 /* Send message to all clients except sender */
 void send_message(char *s, int uid){
   pthread_mutex_lock(&clients_mutex);
 
   for(int i=0; i<MAX_CLIENTS; ++i){
-    if(clients[i]){
-      if(clients[i]->uid != uid){
-        if(write(clients[i]->sockfd, s, strlen(s)) < 0){
+    if(Clients[i]){
+      if(Clients[i]->uid != uid){
+        if(write(Clients[i]->sockfd, s, strlen(s)) < 0){
           perror("ERROR: write to descriptor failed");
           break;
         }
@@ -461,15 +722,23 @@ void send_message(char *s, int uid){
   pthread_mutex_unlock(&clients_mutex);
 }
 
+void send_message_toSingle(char *s, int  sockfd){
+  pthread_mutex_lock(&clients_mutex);
+        if(write(sockfd, s, strlen(s)) < 0){
+          perror("ERROR: write to descriptor failed");
+          
+        }
+  pthread_mutex_unlock(&clients_mutex);
+}
   void *handle_client_chatroom(void *arg){
     char buff[BUFFER_SZ];
     char buff_out[BUFFER_SZ];
+    char  buffer_wordHide[BUFFER_SZ];
     int leave_flag = 0;
     int left_flag =0;
     int receive;
-    int process =0;
+    int process=0;
     int state =0;
-    char buffer[256] = "51 Enter message to send: ";
     cli_count++;
     client_t *cli = (client_t *)arg;
     if(left_flag==0){
@@ -491,21 +760,62 @@ void send_message(char *s, int uid){
                               }
                               // Handle password
                               else if (strcmp(DecodeMessage(buff), "02") == 0) {
-                                HandleLoginPassword(cli->sockfd, username, buff, fileName, f);
+                                HandleLoginPassword(cli->sockfd, username, buff, fileName, f,f_word);
                                 strcpy(cli->name,username);
                               }
                               // Handle menu-chat
                               else if (strcmp(DecodeMessage(buff), "03") == 0) {
                                 HandleMenuChat(cli->sockfd, buff);
                               }
+                               // Handle chat 1-1
+                              else if (strcmp(DecodeMessage(buff), "04") == 0) {
+                                HandleSingleChat(cli->sockfd, buff);
+
+                                //queue_add_Single(cli);
+                                process =1;
+                                left_flag =1;
+                              }
+                            
                               else if(strcmp(DecodeMessage(buff),"05") == 0){
                                   HandleLoginChat(cli->sockfd,buff);
                                   left_flag = 1;
                                   queue_add(cli);
+                                  
                               }     
                      bzero(buff,sizeof(buff));  
           }
         }
+    }
+    // Xu ly chat don
+    if(process==1){
+            while(1){
+          if (leave_flag) {
+            break;
+          }
+          int rec= recv(cli->sockfd, buff_out, BUFFER_SZ, 0);
+        if (rec > 0){
+          if(strlen(buff_out) > 0){
+            char *strcat = (char *)malloc(sizeof(char)*BUFFER_SZ);
+            sprintf(strcat, "%s :%s", cli->name,handleHideWord(buff_out));
+            send_message_toSingle(strcat, cli->receiverSock);
+            free(strcat);
+            str_trim_lf(buff_out, strlen(buff_out));
+            printf("%s -> %s\n", buff_out, cli->name);
+          }
+        } else if (rec== 0 || strcmp(buff_out, "exit") == 0){
+          sprintf(buff_out, "%s has left\n", cli->name);
+          printf("%s", buff_out);
+          send_message(buff_out, cli->receiverSock);
+          leave_flag = 1;
+        } else {
+          printf("ERROR: -1\n");
+          leave_flag = 1;
+        }
+
+        bzero(buff_out, BUFFER_SZ);
+              
+      }
+  
     }
   if(left_flag ==1){
             while(1){
@@ -516,7 +826,7 @@ void send_message(char *s, int uid){
         if (rec > 0){
           if(strlen(buff_out) > 0){
             char *strcat = (char *)malloc(sizeof(char)*BUFFER_SZ);
-             sprintf(strcat, "%s :%s", cli->name,buff_out);
+             sprintf(strcat, "%s :%s", cli->name,handleHideWord(buff_out));
             send_message(strcat, cli->uid);
             free(strcat);
             str_trim_lf(buff_out, strlen(buff_out));
@@ -539,6 +849,7 @@ void send_message(char *s, int uid){
   /* Delete client from queue and yield thread */
     close(cli->sockfd);
     queue_remove(cli->uid);
+    queue_remove_Single(cli->uid);
     free(cli);
     cli_count--;
     pthread_detach(pthread_self());
@@ -549,6 +860,11 @@ void send_message(char *s, int uid){
 
 
 int main(int argc, char* argv[]) {
+
+
+
+  readFile_Hide(fileWordHide,f_word);
+  
   if (argc == 1) {
     printf("Missing port number.\n");
     return 0;
@@ -561,11 +877,14 @@ int main(int argc, char* argv[]) {
      
     readFile(fileName, f);
     printNode();
+    readFile_Hide(fileWordHide,f_word);
+    //printNodeWord();
   char *ip = "127.0.0.1";
   int port = atoi(argv[1]);
   int option = 1;
   int listenfd = 0, connfd = 0;
-
+   int firstChoice, secondChoice;
+   
     struct sockaddr_in serv_addr;
     struct sockaddr_in cli_addr;
     pthread_t tid1,tid2;
@@ -615,9 +934,13 @@ int main(int argc, char* argv[]) {
             cli->address = cli_addr;
             cli->sockfd = connfd;
             cli->uid = uid++;
+            cli->menu_status =0;
+            cli->haveWaitingMessage = 0;
+            strcpy(cli->name,"");
 
             /* Add client to the queue and fork thread */
             //queue_add(cli);
+            queue_add_Single(cli);
               SendLoginAndExitMenu(cli->sockfd);        
          pthread_create(&tid1, NULL, &handle_client_chatroom, (void*)cli);
             /* Reduce CPU usage */
